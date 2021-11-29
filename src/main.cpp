@@ -1,7 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <uv.h>
+#include "llhttp.h"
 #include "main.h"
+
+llhttp_t parser;
 
 uv_loop_t *loop;
 
@@ -18,10 +21,17 @@ static void on_close(uv_handle_t *peer)
 	free(peer);
 }
 
+static int handle_on_message_complete(llhttp_t *parser)
+{
+	// Event needs to be fired after the parser is done.
+	fprintf(stdout, "Method: %d, StatusCode: %d", parser->method, parser->status_code);
+	return 0;
+}
+
 static void after_shutdown(uv_shutdown_t *req, int status)
 {
 	ASSERT(status == 0);
-	uv_close((uv_handle_t*) req->handle, on_close);
+	uv_close((uv_handle_t *)req->handle, on_close);
 	free(req);
 }
 
@@ -54,7 +64,34 @@ static void after_read(uv_stream_t *handle,
 		return;
 	}
 
+	llhttp_settings_t settings;
+
+	settings.on_message_complete = handle_on_message_complete;
+
+	/* Initialize user callbacks and settings */
+	llhttp_settings_init(&settings);
+
+	/* Set user callback */
+
+	/* Initialize the parser in HTTP_BOTH mode, meaning that it will select between
+	* HTTP_REQUEST and HTTP_RESPONSE parsing automatically while reading the first
+	* input.
+	*/
+	llhttp_init(&parser, HTTP_BOTH, &settings);
+
+	enum llhttp_errno err = llhttp_execute(&parser, buf->base, buf->len);
+
 	fprintf(stdout, ">>>>>>>>>>>>>>>>>>>> hi: %s\n", buf->base);
+
+	if (err == HPE_OK)
+	{
+		/* Successfully parsed! */
+	}
+	else
+	{
+		fprintf(stderr, "Parse error: %s %s\n", llhttp_errno_name(err),
+				parser.reason);
+	}
 
 	free(buf->base);
 	return;

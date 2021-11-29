@@ -6,9 +6,6 @@
 # Ignore all dotfiles.
 .*
 
-output
-./src/main.o
-
 # Exclude specific dotfiles that we want to track.
 !deps/**/.*
 !test/fixtures/**/.*
@@ -163,3 +160,6 @@ install_manifest.txt
 __pycache__
 .DS_Store
 *~
+
+src/main.o
+output/
