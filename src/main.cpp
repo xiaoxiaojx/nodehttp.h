@@ -1,8 +1,10 @@
-#include "main.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
+
 #include "llhttp.h"
 #include "uv.h"
+#include "nodehttp.h"
 
 llhttp_t parser;
 
@@ -29,7 +31,7 @@ static int handle_on_message_complete(llhttp_t* parser) {
 }
 
 static void after_shutdown(uv_shutdown_t* req, int status) {
-  ASSERT(status == 0);
+  assert(status == 0);
   uv_close((uv_handle_t*)req->handle, on_close);
   free(req);
 }
@@ -43,12 +45,12 @@ static void after_read(uv_stream_t* handle,
 
   if (nread < 0) {
     /* Error or EOF */
-    ASSERT(nread == UV_EOF);
+    assert(nread == UV_EOF);
 
     free(buf->base);
     sreq = (uv_shutdown_t*)malloc(sizeof *sreq);
     if (uv_is_writable(handle)) {
-      ASSERT(0 == uv_shutdown(sreq, handle, after_shutdown));
+      assert(0 == uv_shutdown(sreq, handle, after_shutdown));
     }
     return;
   }
@@ -118,5 +120,6 @@ int main() {
     fprintf(stderr, "Listen error %s\n", uv_strerror(r));
     return 1;
   }
+  fprintf(stdout, "Server running at http:// %d", DEFAULT_PORT);
   return uv_run(loop, UV_RUN_DEFAULT);
 }
