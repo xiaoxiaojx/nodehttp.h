@@ -18,12 +18,14 @@ typedef struct n_http_request_s {
 typedef struct n_http_server_s {
   void (*request_handler)(n_http_request_t*);
 
-  uv_tcp_t uv_server;
+  uv_tcp_t* uv_server;
 
   uv_loop_t* uv_loop;
 } n_http_server_t;
 
 llhttp_t parser;
+
+static uv_tcp_t uv_server;
 
 static void alloc_buffer(uv_handle_t* handle,
                          size_t suggested_size,
@@ -122,14 +124,18 @@ static void on_new_connection(uv_stream_t* server, int status) {
   }
 }
 
-int n_listen(n_http_server_t serv, int port) {
+int n_listen(n_http_server_t* server, int port) {
   sockaddr_in addr;
-  uv_tcp_init(serv.uv_loop, &serv.uv_server);
-  uv_ip4_addr(DEFAULT_HOST, port, &addr);
-  uv_tcp_bind(&serv.uv_server, (const struct sockaddr*)&addr, 0);
 
-  int r = uv_listen(
-      (uv_stream_t*)&serv.uv_server, DEFAULT_BACKLOG, on_new_connection);
+  uv_tcp_t* uv_server = server->uv_server;
+  uv_loop_t* uv_loop = server->uv_loop;
+
+  uv_tcp_init(uv_loop, uv_server);
+  uv_ip4_addr(DEFAULT_HOST, port, &addr);
+  uv_tcp_bind(uv_server, (const struct sockaddr*)&addr, 0);
+
+  int r =
+      uv_listen((uv_stream_t*)uv_server, DEFAULT_BACKLOG, on_new_connection);
 
   if (r) {
     fprintf(stderr, "Listen error %s\n", uv_strerror(r));
@@ -137,14 +143,15 @@ int n_listen(n_http_server_t serv, int port) {
   }
   fprintf(stdout, "Server running at http://localhost:%d/ 🚀🚀🚀", port);
 
-  return uv_run(serv.uv_loop, UV_RUN_DEFAULT);
+  return uv_run(uv_loop, UV_RUN_DEFAULT);
 }
 
-n_http_server_t n_create_server(void (*handler)(n_http_request_t*)) {
-  n_http_server_t serv;
+n_http_server_t* n_create_server(void (*handler)(n_http_request_t*)) {
+  n_http_server_t server;
 
-  serv.uv_loop = uv_default_loop();
-  serv.request_handler = handler;
+  server.uv_loop = uv_default_loop();
+  server.request_handler = handler;
+  server.uv_server = &uv_server;
 
-  return serv;
+  return &server;
 }
