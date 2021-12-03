@@ -15,6 +15,8 @@
 typedef struct n_http_request_s {
 } n_http_request_t;
 
+void n_request_handler_t(n_http_request_t*);
+
 typedef struct n_http_server_s {
   void (*request_handler)(n_http_request_t*);
 
@@ -24,8 +26,6 @@ typedef struct n_http_server_s {
 } n_http_server_t;
 
 llhttp_t parser;
-
-static uv_tcp_t uv_server;
 
 static void alloc_buffer(uv_handle_t* handle,
                          size_t suggested_size,
@@ -127,15 +127,12 @@ static void on_new_connection(uv_stream_t* server, int status) {
 int n_listen(n_http_server_t* server, int port) {
   sockaddr_in addr;
 
-  uv_tcp_t* uv_server = server->uv_server;
-  uv_loop_t* uv_loop = server->uv_loop;
-
-  uv_tcp_init(uv_loop, uv_server);
+  uv_tcp_init(server->uv_loop, server->uv_server);
   uv_ip4_addr(DEFAULT_HOST, port, &addr);
-  uv_tcp_bind(uv_server, (const struct sockaddr*)&addr, 0);
+  uv_tcp_bind(server->uv_server, (const struct sockaddr*)&addr, 0);
 
-  int r =
-      uv_listen((uv_stream_t*)uv_server, DEFAULT_BACKLOG, on_new_connection);
+  int r = uv_listen(
+      (uv_stream_t*)server->uv_server, DEFAULT_BACKLOG, on_new_connection);
 
   if (r) {
     fprintf(stderr, "Listen error %s\n", uv_strerror(r));
@@ -143,15 +140,26 @@ int n_listen(n_http_server_t* server, int port) {
   }
   fprintf(stdout, "Server running at http://localhost:%d/ 🚀🚀🚀", port);
 
-  return uv_run(uv_loop, UV_RUN_DEFAULT);
+  return uv_run(server->uv_loop, UV_RUN_DEFAULT);
 }
 
 n_http_server_t* n_create_server(void (*handler)(n_http_request_t*)) {
-  n_http_server_t server;
+  static uv_tcp_t uv_server;
 
-  server.uv_loop = uv_default_loop();
-  server.request_handler = handler;
-  server.uv_server = &uv_server;
+  n_http_server_t* server = (n_http_server_t*)malloc(sizeof(n_http_server_t));
 
-  return &server;
+  assert(server != NULL);
+
+  server->uv_loop = (uv_loop_t*)malloc(sizeof(uv_loop_t));
+  assert(server->uv_loop != NULL);
+
+  server->uv_server = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
+  assert(server->uv_server != NULL);
+
+
+  server->uv_loop = uv_default_loop();
+  server->request_handler = handler;
+  server->uv_server = &uv_server;
+
+  return server;
 }
