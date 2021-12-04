@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <map>
 
 #include "llhttp.h"
 #include "uv.h"
@@ -15,8 +16,6 @@
 typedef struct n_http_request_s {
 } n_http_request_t;
 
-void n_request_handler_t(n_http_request_t*);
-
 typedef struct n_http_server_s {
   void (*request_handler)(n_http_request_t*);
 
@@ -25,7 +24,13 @@ typedef struct n_http_server_s {
   uv_loop_t* uv_loop;
 } n_http_server_t;
 
-llhttp_t parser;
+typedef struct n_accept_req_s {
+  llhttp_t* parser;
+} n_accept_req_t;
+
+typedef void (*request_handler_t)(n_http_request_t*);
+
+static std::map<int, n_accept_req_t> n_accept_list;
 
 static void alloc_buffer(uv_handle_t* handle,
                          size_t suggested_size,
@@ -59,6 +64,14 @@ static void after_read(uv_stream_t* handle,
   int i;
   uv_shutdown_t* sreq;
   int shutdown = 0;
+  enum llhttp_errno llhttp_err;
+
+  fprintf(stdout,
+          ">>> Request content: %s, length: %d, alloc_length: %d, nread: %d\n",
+          buf->base,
+          sizeof(buf->base),
+          buf->len,
+          nread);
 
   if (nread < 0) {
     /* Error or EOF */
@@ -78,14 +91,37 @@ static void after_read(uv_stream_t* handle,
     return;
   }
 
-  llhttp_settings_t settings;
+  n_accept_req_t req = n_accept_list[handle->io_watcher.fd];
 
+  if (buf->base == nullptr) {
+    n_accept_list.erase(handle->io_watcher.fd);
+    llhttp_err = llhttp_finish(req.parser);
+  } else {
+    llhttp_err = llhttp_execute(req.parser, buf->base, sizeof(buf->base));
+  }
+
+  if (llhttp_err == HPE_OK) {
+    /* Successfully parsed! */
+  } else {
+    fprintf(stderr,
+            "Parse error: %s %s\n",
+            llhttp_errno_name(llhttp_err),
+            req.parser->reason);
+  }
+  free(buf->base);
+  return;
+}
+
+static llhttp_t* create_http_parser() {
+  static llhttp_t parser;
+
+  static llhttp_settings_t settings;
+
+  /* Set user callback */
   settings.on_message_complete = handle_on_message_complete;
 
   /* Initialize user callbacks and settings */
   llhttp_settings_init(&settings);
-
-  /* Set user callback */
 
   /* Initialize the parser in HTTP_BOTH mode, meaning that it will select
    * between HTTP_REQUEST and HTTP_RESPONSE parsing automatically while reading
@@ -93,24 +129,13 @@ static void after_read(uv_stream_t* handle,
    */
   llhttp_init(&parser, HTTP_BOTH, &settings);
 
-  enum llhttp_errno err = llhttp_execute(&parser, buf->base, buf->len);
-
-  fprintf(stdout, ">>>>>>>>>>>>>>>>>>>> hi: %s\n", buf->base);
-
-  if (err == HPE_OK) {
-    /* Successfully parsed! */
-  } else {
-    fprintf(
-        stderr, "Parse error: %s %s\n", llhttp_errno_name(err), parser.reason);
-  }
-
-  free(buf->base);
-  return;
+  return &parser;
 }
 
 static void on_new_connection(uv_stream_t* server, int status) {
-  // error!
   if (status < 0) {
+    // error!
+
     fprintf(stderr, "New connection error %s\n", uv_strerror(status));
     return;
   }
@@ -121,6 +146,12 @@ static void on_new_connection(uv_stream_t* server, int status) {
   uv_tcp_init(serv->uv_loop, client);
   if (uv_accept(server, (uv_stream_t*)client) == 0) {
     uv_read_start((uv_stream_t*)client, alloc_buffer, after_read);
+
+    n_accept_req_t req;
+    req.parser = (llhttp_t*)malloc(sizeof(llhttp_t));
+    req.parser = create_http_parser();
+
+    n_accept_list[client->io_watcher.fd] = req;
   }
 }
 
@@ -138,7 +169,7 @@ int n_listen(n_http_server_t* server, int port) {
     fprintf(stderr, "Listen error %s\n", uv_strerror(r));
     return 1;
   }
-  fprintf(stdout, "Server running at http://localhost:%d/ 🚀🚀🚀", port);
+  fprintf(stdout, "Server running at http://localhost:%d/ 🚀🚀🚀\n", port);
 
   return uv_run(server->uv_loop, UV_RUN_DEFAULT);
 }
@@ -155,7 +186,6 @@ n_http_server_t* n_create_server(void (*handler)(n_http_request_t*)) {
 
   server->uv_server = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
   assert(server->uv_server != NULL);
-
 
   server->uv_loop = uv_default_loop();
   server->request_handler = handler;
