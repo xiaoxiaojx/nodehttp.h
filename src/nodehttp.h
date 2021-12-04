@@ -30,8 +30,6 @@ typedef struct n_accept_req_s {
   void (*request_handler)(n_http_request_t*);
 } n_accept_req_t;
 
-typedef void (*request_handler_t)(n_http_request_t*);
-
 static std::map<int, n_accept_req_t> n_accept_list;
 
 static void alloc_buffer(uv_handle_t* handle,
