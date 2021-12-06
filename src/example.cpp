@@ -1,8 +1,13 @@
 #include "nodehttp.h"
 
+char *text = "HTTP/1.1 201 OK\r\n"
+    "Content-Length: 9\r\n"
+    "\r\n\r\n"
+    "uh, meow?\0";
+
 int main() {
   n_http_server_t* server = n_create_server(
-      [](n_http_request_t* req) { n_end(req, "HTTP/1.1 201 OK\r\n"); });
+      [](n_http_request_t* req) { n_end(req, text); });
 
   return n_listen(server, 3000);
 }
