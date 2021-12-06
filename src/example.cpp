@@ -3,7 +3,7 @@
 char *text = "HTTP/1.1 201 OK\r\n"
     "Content-Length: 9\r\n"
     "\r\n\r\n"
-    "uh, meow?\0";
+    "uh, meow?";
 
 int main() {
   n_http_server_t* server = n_create_server(
