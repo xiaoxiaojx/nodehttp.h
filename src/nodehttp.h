@@ -148,9 +148,7 @@ static int on_headers_complete(llhttp_t* parser) {
   return 0;
 }
 
-static llhttp_t create_http_parser() {
-  static llhttp_t parser;
-  
+static void n_llhttp_init(llhttp_t* parser) {
   // 1. 声明 settings
   static llhttp_settings_t settings;
 
@@ -166,9 +164,7 @@ static llhttp_t create_http_parser() {
    * between HTTP_REQUEST and HTTP_RESPONSE parsing automatically while reading
    * the first input.
    */
-  llhttp_init(&parser, HTTP_BOTH, &settings);
-
-  return parser;
+  llhttp_init(parser, HTTP_BOTH, &settings);
 }
 
 static void on_new_connection(uv_stream_t* server, int status) {
@@ -187,7 +183,10 @@ static void on_new_connection(uv_stream_t* server, int status) {
     uv_read_start((uv_stream_t*)client, alloc_cb, read_cb);
 
     n_accept_req_t req;
-    req.parser = create_http_parser();
+    llhttp_t parser;
+
+    req.parser = parser;
+    n_llhttp_init(&req.parser);
     req.request_handler = serv->request_handler;
     req.client = (uv_stream_t*)client;
 
