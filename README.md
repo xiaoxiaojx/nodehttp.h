@@ -29,14 +29,9 @@ As much as possible like the following Node.js syntax
 const http = require('http');
 
 const server = http.createServer((req, res) => {
-  console.log(">>> req.url: %s\n", req.url);
+  console.log('>>> req.url: %s\n', req.url);
 
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(
-    JSON.stringify({
-      data: 'Hello World!',
-    })
-  );
+  res.end('uh, meow?');
 });
 
 server.listen(3000);
