@@ -19,9 +19,13 @@ typedef struct n_http_request_s {
   char* url;
 } n_http_request_t;
 
-typedef struct n_http_server_s {
-  void (*request_handler)(n_http_request_t*);
+typedef struct n_http_response_s {
+  uv_stream_t* client;
 
+} n_http_response_t;
+
+typedef struct n_http_server_s {
+  void (*request_handler)(n_http_request_t*, n_http_response_t*);
   uv_tcp_t uv_server;
 
   uv_loop_t* uv_loop;
@@ -30,9 +34,9 @@ typedef struct n_http_server_s {
 typedef struct n_accept_req_s {
   llhttp_t parser;
   llhttp_settings_t settings;
-  uv_stream_t* client;
-  void (*request_handler)(n_http_request_t*);
-  n_http_request_t user;
+  void (*request_handler)(n_http_request_t*, n_http_response_t*);
+  n_http_request_t req;
+  n_http_response_t res;
   char* url;
 } n_accept_req_t;
 
@@ -56,7 +60,9 @@ static void close_cb(uv_handle_t* handle) {
   n_accept_map.erase(((uv_stream_t*)handle)->io_watcher.fd);
 
   free(handle);
-  free(accept_req.user.url);
+  free(accept_req.res.client);
+  free(accept_req.req.url);
+  free(accept_req.url);
 }
 
 static void shutdown_cb(uv_shutdown_t* req, int status) {
@@ -136,13 +142,12 @@ static int on_message_complete(llhttp_t* parser) {
 
   n_accept_req_t* accept_req = container_of(parser, n_accept_req_t, parser);
 
-  n_http_request_t user = {.method = parser->method,
-                           .content_length = parser->content_length,
-                           .url = accept_req->url};
+  n_http_request_t req = {.method = parser->method,
+                          .content_length = parser->content_length,
+                          .url = accept_req->url};
+  accept_req->req = req;
 
-  accept_req->user = user;
-
-  accept_req->request_handler(&accept_req->user);
+  accept_req->request_handler(&accept_req->req, &accept_req->res);
   return 0;
 }
 
@@ -204,6 +209,7 @@ static void on_new_connection(uv_stream_t* server, int status) {
     n_accept_req_t req;
     llhttp_t parser;
     llhttp_settings_t settings;
+    n_http_response_t res = {.client = (uv_stream_t*)client};
 
     req.parser = parser;
     req.settings = settings;
@@ -211,22 +217,21 @@ static void on_new_connection(uv_stream_t* server, int status) {
     n_llhttp_init(&req.parser, &req.settings);
 
     req.request_handler = serv->request_handler;
-    req.client = (uv_stream_t*)client;
+    req.res = res;
 
     n_accept_map[client->io_watcher.fd] = req;
   }
 }
 
-void n_end(n_http_request_t* user_req, char* data) {
+void n_end(n_http_response_t* res, char* data) {
   uv_write_t write_req;
   uv_buf_t buf = {.base = data, .len = strlen(data)};
-  n_accept_req_t* accept_req = container_of(user_req, n_accept_req_t, user);
 
   fprintf(stdout, ">>> n_end  data: %s, len: %d\n", data, strlen(data));
 
-  uv_read_stop((uv_stream_t*)accept_req->client);
+  uv_read_stop((uv_stream_t*)res->client);
 
-  uv_write(&write_req, (uv_stream_t*)accept_req->client, &buf, 1, write_cb);
+  uv_write(&write_req, (uv_stream_t*)res->client, &buf, 1, write_cb);
 }
 
 int n_listen(n_http_server_t* server, int port) {
@@ -248,7 +253,8 @@ int n_listen(n_http_server_t* server, int port) {
   return uv_run(server->uv_loop, UV_RUN_DEFAULT);
 }
 
-n_http_server_t* n_create_server(void (*handler)(n_http_request_t*)) {
+n_http_server_t* n_create_server(void (*handler)(n_http_request_t*,
+                                                 n_http_response_t*)) {
   uv_tcp_t uv_server;
 
   n_http_server_t* server = (n_http_server_t*)malloc(sizeof(n_http_server_t));
