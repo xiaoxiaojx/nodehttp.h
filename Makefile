@@ -3,3 +3,6 @@ build:
 
 start:
 	./output/run
+
+startjs:
+	node src/example.js
