@@ -35,17 +35,18 @@ typedef struct n_http_server_s {
 } n_http_server_t;
 
 typedef struct n_accept_req_s {
+  uv_tcp_t client;
   int server_id;
   llhttp_t parser;
   llhttp_settings_t settings;
-  uv_stream_t* client;
   char* url;
 } n_accept_req_t;
 
 void n_end(struct http_server_s* server, void* data);
 
+// 不推荐的写法, 尽量不用
 // 临时存储每次请求的数据
-static std::map<int, n_accept_req_t> n_accept_map;
+// static std::map<int, n_accept_req_t> n_accept_map;
 
 // 存储创建的所有 server 映射关系
 static std::map<int, n_http_server_t*> n_server_map;
@@ -64,7 +65,9 @@ static void alloc_cb(uv_handle_t* handle,
 }
 
 static void close_cb(uv_handle_t* handle) {
-  free(handle);
+  n_accept_req_t* accept_req = (n_accept_req_t*) handle;
+
+  free(accept_req);
 }
 
 static void shutdown_cb(uv_shutdown_t* req, int status) {
@@ -106,24 +109,26 @@ static void read_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
     free(buf->base);
     return;
   }
+  n_accept_req_t* accept_req = (n_accept_req_t*) handle;
+  assert(accept_req != NULL);
 
-  n_accept_req_t accept_req = n_accept_map[handle->io_watcher.fd];
+  // n_accept_req_t accept_req = n_accept_map[handle->io_watcher.fd];
 
   if (buf->base == nullptr) {
     fprintf(stdout, ">>> llhttp_finish\n");
 
     // n_accept_map.erase(handle->io_watcher.fd);
-    llhttp_err = llhttp_finish(&accept_req.parser);
+    llhttp_err = llhttp_finish(&accept_req->parser);
   } else {
-    fprintf(stdout, ">>> llhttp_execute\n");
+    fprintf(stdout, ">>> llhttp_execute fd %d\n", handle->io_watcher.fd);
 
-    llhttp_err = llhttp_execute(&accept_req.parser, buf->base, nread);
+    llhttp_err = llhttp_execute(&(accept_req->parser), buf->base, nread);
   }
 
   fprintf(stdout,
           ">>> llhttp_err %d, finish %d\n",
           llhttp_err,
-          (&accept_req.parser)->finish);
+          (&(accept_req->parser))->finish);
 
   if (llhttp_err == HPE_OK) {
     /* Successfully parsed! */
@@ -131,7 +136,7 @@ static void read_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
     fprintf(stderr,
             ">>> Parse error: %s %s\n",
             llhttp_errno_name(llhttp_err),
-            (&accept_req.parser)->reason);
+            (&(accept_req->parser))->reason);
   }
   free(buf->base);
   return;
@@ -150,7 +155,7 @@ static int on_message_complete(llhttp_t* parser) {
                           .url = accept_req->url};
 
   n_http_response_t res = {
-      .client = accept_req->client,
+      .client = (uv_stream_t*) &accept_req->client,
   };
 
   fprintf(stdout, ">>> request_handler server_id: %d\n", accept_req->server_id);
@@ -160,11 +165,11 @@ static int on_message_complete(llhttp_t* parser) {
   uv_close((uv_handle_t*)res.client, close_cb);
 
   free(accept_req->url);
-  // free(accept_req->client);
+  // free(accept_req);
   // free(req.url);
   // free(res.client);
 
-  n_accept_map.erase(((uv_stream_t*)res.client)->io_watcher.fd);
+  // n_accept_map.erase(((uv_stream_t*)res.client)->io_watcher.fd);
 
   return 0;
 }
@@ -219,23 +224,23 @@ static void on_new_connection(uv_stream_t* server, int status) {
 
   n_http_server_t* serv = container_of(server, n_http_server_t, uv_server);
 
-  uv_tcp_t* client = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
-  uv_tcp_init(serv->uv_loop, client);
-  if (uv_accept(server, (uv_stream_t*)client) == 0) {
-    uv_read_start((uv_stream_t*)client, alloc_cb, read_cb);
+  n_accept_req_t* req = (n_accept_req_t*)malloc(sizeof(n_accept_req_t));;
 
-    n_accept_req_t req;
+  // req.client = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
+  uv_tcp_init(serv->uv_loop, &req->client);
+  if (uv_accept(server, (uv_stream_t*)&req->client) == 0) {
+    uv_read_start((uv_stream_t*)&req->client, alloc_cb, read_cb);
+
     llhttp_t parser;
     llhttp_settings_t settings;
 
-    req.parser = parser;
-    req.settings = settings;
-    req.client = (uv_stream_t*)client;
+    req->parser = parser;
+    req->settings = settings;
 
-    n_llhttp_init(&req.parser, &req.settings);
-    req.server_id = serv->id;
+    n_llhttp_init(&req->parser, &req->settings);
+    req->server_id = serv->id;
 
-    n_accept_map[client->io_watcher.fd] = req;
+    // n_accept_map[client->io_watcher.fd] = req;
   }
 }
 
