@@ -7,17 +7,15 @@ Node.js style http server implemented in c, based on libuv and llhttp.（It is m
 ```c
 #include "nodehttp.h"
 
-char* text = "HTTP/1.1 201 OK\r\n"
-             "Content-Length: 9\r\n"
-             "\r\n"
-             "uh, meow?";
-
 int main() {
   n_http_server_t* server =
       n_create_server([](n_http_request_t* req, n_http_response_t* res) {
         printf("req.url: %s\n", req->url);
 
-        n_end(res, text);
+        n_set_status_code(res, 200);
+        n_set_header(res, "Content-Type", "text/plain");
+        n_set_header(res, "Content-Length", "9");
+        n_end(res, "uh, meow?");
       });
 
   return n_listen(server, 3000);
@@ -30,8 +28,11 @@ As much as possible like the following Node.js syntax
 const http = require('http');
 
 const server = http.createServer((req, res) => {
-  console.log('>>> req.url: %s\n', req.url);
+  console.log('req.url: %s\n', req.url);
 
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Length', '9');
   res.end('uh, meow?');
 });
 
@@ -39,10 +40,13 @@ server.listen(3000);
 ```
 
 ### Benchmark
+
 ```bash
 ab -c 100 -n 10000 http://127.0.0.1:3000/
 ```
+
 #### nodehttp.h
+
 ```
 This is ApacheBench, Version 2.3 <$Revision: 1826891 $>
 Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
@@ -98,7 +102,9 @@ Percentage of the requests served within a certain time (ms)
   99%     11
  100%     13 (longest request)
 ```
+
 #### Node.js (v16.5.0)
+
 ```
 This is ApacheBench, Version 2.3 <$Revision: 1826891 $>
 Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
